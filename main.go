@@ -2,52 +2,53 @@ package main
 
 import (
 	"component-service/api"
+	"component-service/cache" // Added
 	"component-service/db"
+	"component-service/store" // Added
 	"log"
 	"net/http"
 	"os"
 )
 
 func main() {
-	// Load environment variables (e.g., from a .env file or system environment)
-	// For simplicity, we assume they are set. In a real app, use something like godotenv.
-	// Example:
-	// err := godotenv.Load()
-	// if err != nil {
-	//     log.Println("Warning: .env file not found, relying on system environment variables.")
-	// }
-
+	// Load environment variables or configuration if any
+	// Example: godotenv.Load() if using .env file
 
 	// Initialize database connection
-	// DB connection details are expected as environment variables (see db/db.go)
-	// Ensure you have set: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
-	// e.g., export DB_HOST=localhost DB_PORT=5432 DB_USER=youruser DB_PASSWORD=yourpass DB_NAME=components_db
-	db.InitDB()
+	db.InitDB() // This function should handle database connection details and pooling
 	log.Println("Database initialized.")
 
+	// Initialize the component cache
+	// The ComponentStore is needed by InitGlobalCache to fetch initial data.
+	cs := &store.ComponentStore{} // Create an instance that satisfies store.ComponentStoreInterface
+	if err := cache.InitGlobalCache(cs); err != nil {
+		// If cache initialization fails, it might be critical for the application.
+		// Depending on requirements, you might allow the app to run with a disabled cache
+		// or treat this as a fatal error. Here, we treat it as fatal.
+		log.Fatalf("Failed to initialize component cache: %v", err)
+	}
+	log.Println("Component cache initialized.")
+
 	// Setup HTTP routing
-	// All requests to /components/* will be handled by ComponentsHandler
-	http.HandleFunc("/components/", api.ComponentsHandler)
-	// A root handler for basic check
+	// ComponentsHandler will use the store (and implicitly the cache through store methods)
+	http.HandleFunc("/components/", api.ComponentsHandler) // Handles /components/ and /components/{id}
+
+	// Optional: Root handler for service health check or info
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
-			http.NotFound(w,r)
+			http.NotFound(w, r)
 			return
 		}
 		w.Write([]byte("Component service is running."))
 	})
 
-
-	// Determine port for HTTP server
+	// Start the HTTP server
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080" // Default port
-		log.Printf("Defaulting to port %s", port)
+		port = "8080" // Default port if not specified
 	}
-
-	log.Printf("Starting server on port %s...", port)
-	// Start the server
+	log.Printf("Server starting on port %s\n", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("Could not start server: %s\n", err.Error())
+		log.Fatalf("Failed to start server: %v", err)
 	}
 }
